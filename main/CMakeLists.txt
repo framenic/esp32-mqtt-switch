@@ -1,0 +1,2 @@
+idf_component_register(SRCS "main.c" "config.c" "mqtt.c" "rtc_sntp.c" "telnet.c" "comm_queue.c" "comm_uart.c" "board_gpio.c"
+                    INCLUDE_DIRS ".")
