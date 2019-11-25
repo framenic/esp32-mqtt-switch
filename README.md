@@ -4,3 +4,5 @@ This is an implementation of a mqqt control switch on ESP32 based on esp-idf
 - support TLS encryption to remote server
 - support configuration and commands via telnet
 - support configuration and commands via uart
+- Real time clock synchronization via ntp
+- Configuration retained via esp-idf NVS Storage
