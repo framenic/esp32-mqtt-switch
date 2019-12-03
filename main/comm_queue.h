@@ -17,3 +17,5 @@ void comm_queue_init();
 
 void comm_queue_rxsend(char *topic, uint32_t topic_len, char* data, uint32_t data_len);
 void comm_queue_rxreceive(rx_msg_t *rx_msg);
+void comm_queue_rxenable();
+void comm_queue_rxdisable();

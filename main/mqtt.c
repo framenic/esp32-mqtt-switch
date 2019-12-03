@@ -9,6 +9,7 @@
 #include "comm_queue.h"
 #include "telnet.h"
 #include "board_gpio.h"
+#include "ota_mqtt.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
@@ -18,6 +19,7 @@ static const char *TAG = "mqtt.c";
 #define STATES        10
 uint8_t state = 0;
 uint8_t otaflag = 0;
+uint16_t mqttotaflag = 0;
 uint8_t restartflag = 0;
 uint8_t smartconfigflag = 0;
 uint16_t heartbeat = 0;
@@ -31,6 +33,22 @@ uint8_t blinkstate = 0;
 
 uint32_t pulse = 0;
 uint32_t timer = 0;
+
+void mqttota_off(esp_mqtt_client_handle_t client)
+{
+	char stopic[80], svalue[20];
+
+	sprintf(stopic, "%s/%s/%s", PUB_PREFIX, sysCfg.mqtt_topic, "mqttotastart");
+	strcpy(svalue, "off");
+	//MQTT_Publish_Tx(&mqttClient, stopic, svalue, strlen(svalue), 1, 0); 
+	esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), 1, 0);
+	
+	printf("%s = %s\n", strrchr(stopic,'/')+1, svalue);
+	telnetSend(strrchr(stopic,'/')+1, strlen(strrchr(stopic,'/')+1));
+	telnetSend(" = ", 3);
+	telnetSend(svalue, strlen(svalue));
+	telnetSend("\n", 1);
+}
 
 
 void send_power(esp_mqtt_client_handle_t client)
@@ -104,7 +122,7 @@ void mqttConnectedCb(esp_mqtt_client_handle_t client)
   msg_id = esp_mqtt_client_publish(client, stopic, svalue, 0, 0, 0);
   ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
   
-  // send PUB_PREFIX/sysCfg.mqtt_topic/power at startup
+  // send PUB_PREFIX/sysCfg.mqtt_topic/power and timer at startup
   send_power(client);
   send_timer(client);
 }
@@ -365,6 +383,26 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
 			break;
         }
     }
+	else if (!grpflg && !strcmp(type,"mqttotastart")) {
+      if ((data_len > 0) && (payload == 1)) {
+        blinks = 1000;
+		comm_queue_rxdisable();
+		mqttotaflag = 20;
+        ota_mqtt_start(client,sysCfg.device_id);
+		strcpy(svalue, "on");
+      }
+      else
+        sprintf(svalue, "1 to start");
+    }
+	else if (!grpflg && !strcmp(type,"mqttotaconfirm")) {
+      if ((data_len > 0) && (payload == 1)) {
+        if (ota_mqtt_confirm()) 
+			strcpy(svalue, "Confirmed OTA image");
+		else strcpy(svalue, "OTA image already confirmed");
+      }
+      else
+        sprintf(svalue, "1 to start");
+    }
     else {
       type = NULL;
     }
@@ -373,7 +411,7 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
       ESP_LOGI(TAG,"APP: Syntax error");
       sprintf(stopic, "%s/%s/SYNTAX", PUB_PREFIX, sysCfg.mqtt_topic);
       if (!grpflg)
-        strcpy(svalue, "Status, Upgrade, Otaurl, Restart, Reset, Smartconfig, SSId, Password, MqttHost, MqttPort, MqttUser, MqttPass, MqttCleansession, GroupTopic, Topic, Timezone, Time, Light, Power, Timer, PowerAtReset, Pulse");
+        strcpy(svalue, "Status, Upgrade, Mqttotastart, Mqttotaconfirm, Otaurl, Restart, Reset, Smartconfig, SSId, Password, MqttHost, MqttPort, MqttUser, MqttPass, MqttCleansession, GroupTopic, Topic, Timezone, Time, Light, Power, Timer, PowerAtReset, Pulse");
       else
         strcpy(svalue, "Status, GroupTopic, Timezone, Light, Power");
     }
@@ -417,11 +455,15 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             break;
         case MQTT_EVENT_DATA:
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-            printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-            printf("DATA=%.*s\r\n", event->data_len, event->data);
-			
-			comm_queue_rxsend(event->topic, event->topic_len, event->data, event->data_len);
-			//mqttDataCb(client, event->topic, event->topic_len, event->data, event->data_len);
+			if (ota_mqtt_check(event->topic, event->topic_len,event->data, event->data_len,event->total_data_len)==0) {
+				if ((event->total_data_len<=DATA_SIZE) && (event->topic_len<=TOPIC_SIZE)) {
+					printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+					printf("DATA=%.*s\r\n", event->data_len, event->data);
+					//mqttDataCb(client, event->topic, event->topic_len, event->data, event->data_len);
+					comm_queue_rxsend(event->topic, event->topic_len, event->data, event->data_len);
+				}
+				else ESP_LOGE(TAG, "Error topic lenght=%d or data lenght=%d exceed limits", event->topic_len, event->data_len);
+			} else mqttotaflag = 20;
             break;
         case MQTT_EVENT_ERROR:
             ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -552,6 +594,7 @@ void tick100msCallback(TimerHandle_t xTimer)
     //GPIO_OUTPUT_SET(LED_PIN, blinkstate);
 	led_set(blinkstate);
     if (!blinkstate) blinks--;
+	if (blinks==0) { blinkstate = 0; led_set(0);}
   }
 
   switch (state) {
@@ -563,6 +606,15 @@ void tick100msCallback(TimerHandle_t xTimer)
         //start_ota(sysCfg.otaUrl);
       }
     }
+	if (mqttotaflag) {
+		mqttotaflag--;
+		if (mqttotaflag <= 0) {
+			ota_mqtt_stop(client);
+			comm_queue_rxenable();
+			blinks = 2;
+			mqttota_off(client);
+		}
+	}
     break;
   case (STATES/10)*4:
     CFG_Save();
