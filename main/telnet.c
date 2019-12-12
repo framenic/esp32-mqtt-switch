@@ -240,7 +240,7 @@ static void do_telnetrx(const int sock)
             ESP_LOGW(TAG, "Connection closed");
         } else {
             rx_buffer[len] = 0; // Null-terminate whatever is received and treat it like a string
-            ESP_LOGI(TAG, "Received %d bytes: %s", len, rx_buffer);
+            //ESP_LOGI(TAG, "Received %d bytes: %s", len, rx_buffer);
 			telnetRecvCb(rx_buffer,len);
         }
     } while (len > 0);
@@ -260,6 +260,16 @@ static void do_telnettx(const int sock,char *txdata,int len)
                 }
                 to_write -= written;
             }
+}
+
+static int telnet_printf(const char *fmt, va_list args)
+{
+	char buff[80];
+	
+	vsnprintf(buff,80,fmt,args);
+	int len=strlen(buff);
+	telnetSend(buff,len);
+    return vprintf(fmt, args);
 }
 
 static void telnet_server_task(void *pvParameters)
@@ -318,8 +328,11 @@ static void telnet_server_task(void *pvParameters)
         }
         ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 
+		//vprintf_like_t saved_printf=esp_log_set_vprintf(telnet_printf);
         do_telnetrx(sock);
 		telnet_sock=-1;
+		//esp_log_set_vprintf(saved_printf);
+		
         shutdown(sock, 0);
         close(sock);
     }
@@ -328,6 +341,8 @@ CLEAN_UP:
     close(listen_sock);
     vTaskDelete(NULL);
 }
+
+
 
 // Start telnet TCP server on specified port (typ. 23)
 void telnetInit(int port)

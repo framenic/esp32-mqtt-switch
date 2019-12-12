@@ -5,11 +5,14 @@
 #include "config.h"
 #include "user_config.h"
 #include <esp_ota_ops.h>
+#include "esp_partition.h"
 #include "rtc_sntp.h"
 #include "comm_queue.h"
 #include "telnet.h"
 #include "board_gpio.h"
 #include "ota_mqtt.h"
+#include "ota_http.h"
+#include "sled.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
@@ -22,26 +25,69 @@ uint8_t otaflag = 0;
 uint16_t mqttotaflag = 0;
 uint8_t restartflag = 0;
 uint8_t smartconfigflag = 0;
+uint8_t factoryrestoreflag = 0;
 uint16_t heartbeat = 0;
 
 uint8_t lastbutton = NOT_PRESSED;
 uint8_t holdcount = 0;
 uint8_t multiwindow = 0;
 uint8_t multipress = 0;
-uint16_t blinks = 3;
-uint8_t blinkstate = 0;
+//uint16_t blinks = 0;
+//uint8_t blinkstate = 0;
 
 uint32_t pulse = 0;
 uint32_t timer = 0;
 
-void mqttota_off(esp_mqtt_client_handle_t client)
+bool mqtt_connected = false;
+
+uint8_t device_state = STATE_RESET;
+
+
+void update_outputs_state()
+{
+	switch (device_state) {
+			case STATE_RESET:
+				set_sled_state(SLED_ON);
+				break;
+			case STATE_WIFI_CONNECTING:
+				set_sled_state(SLED_SLOW_BLINK);
+				break;
+			case STATE_WIFI_CONNECTED:
+			case STATE_MQTT_CONNECTING:
+				set_sled_state(SLED_SLOW_FLASH);
+				break;
+			case STATE_MQTT_CONNECTED:
+				set_sled_state(SLED_OFF);
+				break;
+			default: break;
+		}
+}
+
+void mqtt_setlower_state(uint8_t state)
+{
+	if (state<device_state) {
+		device_state = state;
+		update_outputs_state();
+	}
+}
+
+void mqtt_sethigher_state(uint8_t state)
+{
+	if (state>device_state) {
+		device_state = state;
+		update_outputs_state();		
+	}
+}
+
+
+void send_mqttota_off(esp_mqtt_client_handle_t client)
 {
 	char stopic[80], svalue[20];
 
 	sprintf(stopic, "%s/%s/%s", PUB_PREFIX, sysCfg.mqtt_topic, "mqttotastart");
 	strcpy(svalue, "off");
 	//MQTT_Publish_Tx(&mqttClient, stopic, svalue, strlen(svalue), 1, 0); 
-	esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), 1, 0);
+	 if (mqtt_connected) esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), 1, 0);
 	
 	printf("%s = %s\n", strrchr(stopic,'/')+1, svalue);
 	telnetSend(strrchr(stopic,'/')+1, strlen(strrchr(stopic,'/')+1));
@@ -58,7 +104,7 @@ void send_power(esp_mqtt_client_handle_t client)
 	sprintf(stopic, "%s/%s/%s", PUB_PREFIX, sysCfg.mqtt_topic, sysCfg.mqtt_subtopic);
 	strcpy(svalue, (sysCfg.power == 0) ? "off" : "on");
 	//MQTT_Publish_Tx(&mqttClient, stopic, svalue, strlen(svalue), 1, 1); //retain
-	esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), 1, 1);
+	 if (mqtt_connected) esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), 1, 1);
 	
 	printf("%s = %s\n", strrchr(stopic,'/')+1, svalue);
 	telnetSend(strrchr(stopic,'/')+1, strlen(strrchr(stopic,'/')+1));
@@ -74,7 +120,7 @@ void send_timer(esp_mqtt_client_handle_t client)
 	sprintf(stopic, "%s/%s/%s", PUB_PREFIX, sysCfg.mqtt_topic, "timer");
 	sprintf(svalue, "%d", timer);
 	//MQTT_Publish_Tx(&mqttClient, stopic, svalue, strlen(svalue), 0, 1); //retain
-	esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), 0, 1);
+	 if (mqtt_connected) esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), 0, 1);
 	  
 	printf("%s = %s\n", strrchr(stopic,'/')+1, svalue);
 	telnetSend(strrchr(stopic,'/')+1, strlen(strrchr(stopic,'/')+1));
@@ -174,7 +220,7 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
 	uint8_t qos = 0;
 	
 	  
-    blinks = 2;
+    set_sled_blink(SLED_NORMAL_BLINK,2);
     sprintf(stopic, "%s/%s/%s", PUB_PREFIX, sysCfg.mqtt_topic, type);
     strcpy(svalue, "Error");
 
@@ -201,7 +247,7 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
     }
     else if (!grpflg && !strcmp(type,"upgrade")) {
       if ((data_len > 0) && (payload == 1)) {
-        blinks = 4;
+        set_sled_blink(SLED_NORMAL_BLINK,4);
         otaflag = 3;
         sprintf(svalue, "Upgrade %s", esp_ota_get_app_description()->version);
       }
@@ -385,14 +431,15 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
     }
 	else if (!grpflg && !strcmp(type,"mqttotastart")) {
       if ((data_len > 0) && (payload == 1)) {
-        blinks = 1000;
-		comm_queue_rxdisable();
-		mqttotaflag = 20;
-        ota_mqtt_start(client,sysCfg.device_id);
-		strcpy(svalue, "on");
+        if (ota_mqtt_start(client,sysCfg.device_id)) {
+			set_sled_state(SLED_NORMAL_BLINK);
+			comm_queue_rxdisable();
+			mqttotaflag = 20;
+			strcpy(svalue, "on");
+		} else strcpy(svalue, "Running image not confirmed");
       }
       else
-        sprintf(svalue, "1 to start");
+        strcpy(svalue, "1 to start");
     }
 	else if (!grpflg && !strcmp(type,"mqttotaconfirm")) {
       if ((data_len > 0) && (payload == 1)) {
@@ -401,13 +448,13 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
 		else strcpy(svalue, "OTA image already confirmed");
       }
       else
-        sprintf(svalue, "1 to start");
+        strcpy(svalue, "1 to start");
     }
     else {
       type = NULL;
     }
     if (type == NULL) {
-      blinks = 1;
+      set_sled_blink(SLED_FAST_BLINK,4);
       ESP_LOGI(TAG,"APP: Syntax error");
       sprintf(stopic, "%s/%s/SYNTAX", PUB_PREFIX, sysCfg.mqtt_topic);
       if (!grpflg)
@@ -416,7 +463,7 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
         strcpy(svalue, "Status, GroupTopic, Timezone, Light, Power");
     }
     //MQTT_Publish_Tx(client, stopic, svalue, strlen(svalue), qos, retain);
-	esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), qos, retain);
+	 if (mqtt_connected) esp_mqtt_client_publish(client, stopic, svalue, strlen(svalue), qos, retain);
 	
 	printf("%s = %s\n", strrchr(stopic,'/')+1, svalue);
 	telnetSend(strrchr(stopic,'/')+1, strlen(strrchr(stopic,'/')+1));
@@ -437,11 +484,15 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
     // your_context_t *context = event->context;
     switch (event->event_id) {
         case MQTT_EVENT_CONNECTED:
+			mqtt_sethigher_state(STATE_MQTT_CONNECTED);
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+			mqtt_connected = true;
             mqttConnectedCb(client);
 			break;
         case MQTT_EVENT_DISCONNECTED:
+			mqtt_setlower_state(STATE_WIFI_CONNECTED);
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+			mqtt_connected = false;
             break;
 
         case MQTT_EVENT_SUBSCRIBED:
@@ -541,6 +592,9 @@ void tick100msCallback(TimerHandle_t xTimer)
 
   
   button = button_get();
+  //if ((button == PRESSED) && (lastbutton == NOT_PRESSED)) led_on();
+  //if ((button == NOT_PRESSED) && (lastbutton == PRESSED)) led_off();
+  
   if ((button == PRESSED) && (lastbutton == NOT_PRESSED)) {
     if (multiwindow == 0) {
       multipress = 1;
@@ -555,7 +609,7 @@ void tick100msCallback(TimerHandle_t xTimer)
       multipress++;
       ESP_LOGD(TAG, "APP: Multipress %d\n", multipress);
     }
-    blinks = 1;
+    set_sled_blink(SLED_NORMAL_BLINK,1);
     multiwindow = STATES;            // 1 second multi press window
   }
   lastbutton = button;
@@ -564,12 +618,12 @@ void tick100msCallback(TimerHandle_t xTimer)
   } else {
     holdcount++;
     if (holdcount == (STATES *4)) {  // 4 seconds button hold
-      CFG_Default();
+	  //restore firmware and settings
+      factoryrestoreflag = 4;
       multipress = 0;
-      restartflag = 4;               // Allow 4 second delay to release button
-      blinks = 2;
-	  smartconfigflag = 1;
-      blinks = 1000;  
+      //restartflag = 4;               // Allow 4 second delay to release button
+      
+	  //smartconfigflag = 1;
     }
   }
   if (multiwindow) {
@@ -578,25 +632,28 @@ void tick100msCallback(TimerHandle_t xTimer)
 	switch (multipress) {
     case 3:
       smartconfigflag = 1;
-      blinks = 1000;
+      set_sled_blink(SLED_NORMAL_BLINK,2);
       break;
     case 4:
       otaflag = 1;
       //GPIO_OUTPUT_SET(LED_PIN, 0);
-	  led_on();
+	  set_sled_state(SLED_ON);
       break;
     }
     multipress = 0;
   }
 
+  /*
   if ((blinks) && (state & 1)) {
     blinkstate ^= 1;
     //GPIO_OUTPUT_SET(LED_PIN, blinkstate);
 	led_set(blinkstate);
-    if (!blinkstate) blinks--;
+    if ((!blinkstate)&&(blinks!=USHRT_MAX)) blinks--;
 	if (blinks==0) { blinkstate = 0; led_set(0);}
   }
-
+  */
+  update_sled_state();
+  
   switch (state) {
   case (STATES/10)*2:
     if (otaflag) {
@@ -604,6 +661,7 @@ void tick100msCallback(TimerHandle_t xTimer)
       if (otaflag <= 0) {
         //os_timer_disarm(&state_timer);
         //start_ota(sysCfg.otaUrl);
+		ota_http(sysCfg.otaUrl);
       }
     }
 	if (mqttotaflag) {
@@ -611,11 +669,36 @@ void tick100msCallback(TimerHandle_t xTimer)
 		if (mqttotaflag <= 0) {
 			ota_mqtt_stop(client);
 			comm_queue_rxenable();
-			blinks = 2;
-			mqttota_off(client);
+			set_sled_blink(SLED_FAST_BLINK,2);
+			send_mqttota_off(client);
+		}
+	}
+	if (factoryrestoreflag) {
+		set_sled_state(SLED_ON);
+		factoryrestoreflag--;
+		if (factoryrestoreflag <= 0) {
+			ESP_LOGI(TAG, "Restoring factory firmware...");
+			esp_partition_iterator_t pi = esp_partition_find(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+			if(pi != NULL) {
+				CFG_Default();
+				const esp_partition_t* factory = esp_partition_get(pi);
+				esp_partition_iterator_release(pi);
+			    
+				if(esp_ota_set_boot_partition(factory) == ESP_OK) {
+					ESP_LOGI(TAG, "Factory firmware restored, rebooting");
+					restartflag = 4;
+				}
+				
+			}
 		}
 	}
     break;
+  case (STATES/10)*3: //check every second mqtt connection status and retry connecting
+    if (device_state==STATE_WIFI_CONNECTED) {
+		if (client!=NULL) esp_mqtt_client_reconnect(client);
+		mqtt_sethigher_state(STATE_MQTT_CONNECTING);
+	}
+	break;	
   case (STATES/10)*4:
     CFG_Save();
     if (restartflag) {
@@ -636,7 +719,7 @@ void tick100msCallback(TimerHandle_t xTimer)
   }
 }
 
-void mqtt_start()
+void mqtt_init()
 {
 	esp_mqtt_client_config_t mqtt_cfg = {
         .uri = sysCfg.mqtt_host,
@@ -646,6 +729,7 @@ void mqtt_start()
 		.password = sysCfg.mqtt_pass,
 		.disable_clean_session = !sysCfg.mqtt_cleansession,
 		.keepalive = sysCfg.mqtt_keepalive,
+		//.disable_auto_reconnect=true,
 		//.lwt_topic = ,
 		//.lwt_msg =,
 		//.lwt_qos = ,
@@ -654,13 +738,18 @@ void mqtt_start()
 	
 	ESP_LOGI(TAG, "Configuried MQTT broker: %s port: %d client id: %s username: %s",mqtt_cfg.uri,mqtt_cfg.port,mqtt_cfg.client_id,mqtt_cfg.username);
 	esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+	
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
     
 	TimerHandle_t xtick100msTimer;
+	//set_sled_state(SLED_OFF);
     xtick100msTimer = xTimerCreate("tick100ms", pdMS_TO_TICKS(100), pdTRUE, client, tick100msCallback);
     xTimerStart(xtick100msTimer, 0);
 	
 	xTaskCreate(mqtt_msg_handler_task, "mqtt_msg_handler", 4096, &client, 5, NULL);
 	esp_mqtt_client_start(client);
+	
     gpio_init();
 }
+
+

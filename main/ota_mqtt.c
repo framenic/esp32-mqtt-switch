@@ -47,7 +47,7 @@ void ota_mqtt_do(char *ota_write_data,int data_read, int total_ota_write_data_le
 	
 	if (update_partition==NULL) { //first time being called
 		running = ota_mqtt_begin();
-		
+			
 		update_partition = esp_ota_get_next_update_partition(NULL);
 		ESP_LOGI(TAG, "Writing to partition subtype %d at offset 0x%x",update_partition->subtype, update_partition->address);
 		assert(update_partition != NULL);
@@ -102,7 +102,7 @@ void ota_mqtt_do(char *ota_write_data,int data_read, int total_ota_write_data_le
                     err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
                     if (err != ESP_OK) {
                         ESP_LOGE(TAG, "esp_ota_begin failed (%s)", esp_err_to_name(err));
-                        
+                        update_partition = NULL;
 						return;
                     }
                     ESP_LOGI(TAG, "esp_ota_begin succeeded");
@@ -152,9 +152,19 @@ void ota_mqtt_end(const esp_partition_t *update_partition,esp_ota_handle_t updat
 
 char *ota_topic=NULL;
 
-void ota_mqtt_start(esp_mqtt_client_handle_t client, char* topic)
+int ota_mqtt_start(esp_mqtt_client_handle_t client, char* topic)
 {
 	int msg_id;
+	
+	const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    
+	if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
+        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+			ESP_LOGI(TAG, "Running image not confirmed");
+			return 0;
+		};
+	}	
 	
 	if (ota_topic==NULL) {
 		ota_topic = (char*)malloc(40);
@@ -164,7 +174,9 @@ void ota_mqtt_start(esp_mqtt_client_handle_t client, char* topic)
 		ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
 	}
 	else ESP_LOGI(TAG, "Error: Already subscrbed for OTA data");
+	return 1;
 }
+
 void ota_mqtt_stop(esp_mqtt_client_handle_t client)
 {
 	int msg_id;

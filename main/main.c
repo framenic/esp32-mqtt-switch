@@ -18,6 +18,8 @@
 #include "comm_uart.h"
 #include "telnet.h"
 #include "comm_queue.h"
+//#include "board_gpio.h"
+#include "sled.h"
 
 static const char *TAG = "esp32-cam-MQTT";
 
@@ -156,10 +158,13 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
   		  switch (event_id)
 		  {
 		  case WIFI_EVENT_STA_START:
+			//set_sled_state(SLED_SLOW_BLINK);
+			mqtt_sethigher_state(STATE_WIFI_CONNECTING);
 			ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
 			ESP_ERROR_CHECK(esp_wifi_connect());
 			break;
 		  case WIFI_EVENT_STA_DISCONNECTED:
+		    mqtt_setlower_state(STATE_WIFI_CONNECTING);
 			ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED");
 			ESP_ERROR_CHECK(esp_wifi_connect());
 
@@ -177,6 +182,7 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
 	  switch (event_id)
 		{
 			case IP_EVENT_STA_GOT_IP:
+				mqtt_sethigher_state(STATE_WIFI_CONNECTED);
 				ESP_LOGI(TAG, "IP_EVENT_STA_GOT_IP");
 				
 				ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
@@ -188,6 +194,8 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
 				{
 				  *server = start_webserver();
 				}
+				
+				
 				break;
 			default:
 			break;
@@ -195,7 +203,7 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
   }
 }
 
-static void initialise_wifi(void *arg)
+static void wifi_init(void *arg)
 {
   tcpip_adapter_init();
   //ESP_ERROR_CHECK(esp_event_loop_init(event_handler, arg));
@@ -216,7 +224,11 @@ static void initialise_wifi(void *arg)
   ESP_LOGI(TAG, "Setting WiFi configuration SSID %s...", wifi_config.sta.ssid);
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
   ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
-  ESP_ERROR_CHECK(esp_wifi_start());
+}
+
+static void wifi_start(void *arg)
+{
+	ESP_ERROR_CHECK(esp_wifi_start());
 }
 
 void app_main()
@@ -236,10 +248,14 @@ void app_main()
   
   comm_queue_init();
   
-  //init_camera();
-  initialise_wifi(&server);
   
-  mqtt_start();
+  wifi_init(&server);
+  mqtt_init();
+  
+  //init_camera();
+  wifi_start(&server);
+  
+  //mqtt_start();
 
   rtc_sntp_init(sysCfg.timezone);
   comm_uart_init();
