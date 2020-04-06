@@ -20,6 +20,7 @@
 #include "comm_queue.h"
 //#include "board_gpio.h"
 #include "sled.h"
+#include "http_serv.h"
 
 static const char *TAG = "esp32-cam-MQTT";
 
@@ -66,6 +67,8 @@ static esp_err_t init_camera()
 
   return ESP_OK;
 }
+
+/*
 
 typedef struct
 {
@@ -149,6 +152,8 @@ void stop_webserver(httpd_handle_t server)
   httpd_stop(server);
 }
 
+*/
+
 //static esp_err_t event_handler(void *ctx, system_event_t *event)
 static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
@@ -162,6 +167,9 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
 			mqtt_sethigher_state(STATE_WIFI_CONNECTING);
 			ESP_LOGI(TAG, "WIFI_EVENT_STA_START");
 			ESP_ERROR_CHECK(esp_wifi_connect());
+			
+			http_serv_start();
+			
 			break;
 		  case WIFI_EVENT_STA_DISCONNECTED:
 		    mqtt_setlower_state(STATE_WIFI_CONNECTING);
@@ -169,11 +177,16 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
 			ESP_ERROR_CHECK(esp_wifi_connect());
 
 			/* Stop the web server */
+			/*
 			if (*server)
 			{
 			  stop_webserver(*server);
 			  *server = NULL;
 			}
+			*/
+			
+			//http_serv_stop();
+			
 			break;
 		  default:
 			break;
@@ -190,12 +203,13 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
 						 ip4addr_ntoa(&event->ip_info.ip));
 				
 				/* Start the web server */
+				/*
 				if (*server == NULL)
 				{
 				  *server = start_webserver();
 				}
-				
-				
+				*/
+								
 				break;
 			default:
 			break;

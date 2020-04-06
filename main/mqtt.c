@@ -262,14 +262,14 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
     else if (!grpflg && !strcmp(type,"ssid")) {
       if ((data_len > 0) && (data_len < 32)) {
         strcpy(sysCfg.sta_ssid, (payload == 1) ? STA_SSID : dataBuf);
-        restartflag = 2;
+        //restartflag = 2;
       }
       sprintf(svalue, "%s", sysCfg.sta_ssid);
     }
     else if (!grpflg && !strcmp(type,"password")) {
       if ((data_len > 0) && (data_len < 64)) {
         strcpy(sysCfg.sta_pwd, (payload == 1) ? STA_PASS : dataBuf);
-        restartflag = 2;
+        //restartflag = 2;
       }
       // os_sprintf(svalue, "%s", sysCfg.sta_pwd);
 	  sprintf(svalue, "%s", "***");
@@ -277,27 +277,27 @@ void mqttDataCb(esp_mqtt_client_handle_t client, const char* topic, uint32_t top
     else if (!grpflg && !strcmp(type,"mqtthost")) {
       if ((data_len > 0) && (data_len < 32)) {
         strcpy(sysCfg.mqtt_host, (payload == 1) ? MQTT_HOST : dataBuf);
-        restartflag = 2;
+        //restartflag = 2;
       }
       sprintf(svalue, "%s", sysCfg.mqtt_host);
     }
 	else if (!grpflg && !strcmp(type,"mqttport")) {
       if ((data_len > 0) && (data_len < 32)) {
         sysCfg.mqtt_port = ((payload == 1) ? MQTT_PORT : payload);
-        restartflag = 2;
+        //restartflag = 2;
       }
       sprintf(svalue, "%d", sysCfg.mqtt_port);
     }else if (!grpflg && !strcmp(type,"mqttuser")) {
       if ((data_len > 0) && (data_len < 32)) {
         strcpy(sysCfg.mqtt_user, (payload == 1) ? MQTT_USER : dataBuf);
-        restartflag = 2;
+        //restartflag = 2;
       }
       sprintf(svalue, "%s", sysCfg.mqtt_user);
     }
 	else if (!grpflg && !strcmp(type,"mqttpass")) {
       if ((data_len > 0) && (data_len < 32)) {
         strcpy(sysCfg.mqtt_pass, (payload == 1) ? MQTT_PASS : dataBuf);
-        restartflag = 2;
+        //restartflag = 2;
       }
       //os_sprintf(svalue, "%s", sysCfg.mqtt_pass);
 	  sprintf(svalue, "%s", "***");
@@ -631,8 +631,8 @@ void tick100msCallback(TimerHandle_t xTimer)
   } else {
 	switch (multipress) {
     case 3:
-      smartconfigflag = 1;
-      set_sled_blink(SLED_NORMAL_BLINK,2);
+      smartconfigflag = 4;
+      set_sled_state(SLED_FAST_FLASH);
       break;
     case 4:
       otaflag = 1;
