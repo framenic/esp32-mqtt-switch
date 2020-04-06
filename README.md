@@ -8,7 +8,8 @@ This is an implementation of a mqqt control switch on ESP32 SoC. Development too
 - Real time clock synchronization via ntp
 - Configuration saved via esp-idf NVS Storage
 Wifi parameters, Network parameters, MQTT options are permanently saved in NVS partition, under namespace Syscfg
-- suport OTA update via mqtt messages
+- support OTA updates via http protocol 
+- support OTA update via mqtt messages
 
 Device enters OTA update by sending message 'cmnd/esp32-cam/mqttotastart 1'
 
