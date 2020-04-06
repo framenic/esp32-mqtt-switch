@@ -162,6 +162,10 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
   if(event_base==WIFI_EVENT) {
   		  switch (event_id)
 		  {
+		  case WIFI_EVENT_STA_STOP:
+		    ESP_LOGI(TAG, "WIFI_EVENT_STA_STOP");
+		    mqtt_setlower_state(STATE_RESET);
+			break;
 		  case WIFI_EVENT_STA_START:
 			//set_sled_state(SLED_SLOW_BLINK);
 			mqtt_sethigher_state(STATE_WIFI_CONNECTING);
@@ -174,7 +178,8 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
 		  case WIFI_EVENT_STA_DISCONNECTED:
 		    mqtt_setlower_state(STATE_WIFI_CONNECTING);
 			ESP_LOGI(TAG, "WIFI_EVENT_STA_DISCONNECTED");
-			ESP_ERROR_CHECK(esp_wifi_connect());
+			
+			if (mqtt_get_state()==STATE_WIFI_CONNECTING) ESP_ERROR_CHECK(esp_wifi_connect());
 
 			/* Stop the web server */
 			/*
@@ -186,7 +191,6 @@ static void wifi_event_handler(void* ctx, esp_event_base_t event_base, int32_t e
 			*/
 			
 			//http_serv_stop();
-			
 			break;
 		  default:
 			break;

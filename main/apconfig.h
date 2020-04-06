@@ -1,0 +1,2 @@
+
+void apconfig_init();

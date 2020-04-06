@@ -10,6 +10,15 @@ This is an implementation of a mqqt control switch on ESP32 SoC. Development too
 Wifi parameters, Network parameters, MQTT options are permanently saved in NVS partition, under namespace Syscfg
 - support OTA updates via http protocol 
 - support OTA update via mqtt messages
+- support wifi AP mode for initial configuration via http (default address 192.168.1.1)
+
+Button functions:
+- 1 short press
+	toggles power on/off
+- 4 short press
+	start ap mode, led on
+- long press (>4s)
+	factory reset, restore flash and data
 
 Device enters OTA update by sending message 'cmnd/esp32-cam/mqttotastart 1'
 

@@ -10,3 +10,4 @@ void mqtt_init();
 
 void mqtt_setlower_state(uint8_t state);
 void mqtt_sethigher_state(uint8_t state);
+uint8_t mqtt_get_state();

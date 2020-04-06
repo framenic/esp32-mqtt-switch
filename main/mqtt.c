@@ -13,6 +13,7 @@
 #include "ota_mqtt.h"
 #include "ota_http.h"
 #include "sled.h"
+#include "apconfig.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
@@ -27,6 +28,8 @@ uint8_t restartflag = 0;
 uint8_t smartconfigflag = 0;
 uint8_t factoryrestoreflag = 0;
 uint16_t heartbeat = 0;
+
+uint8_t mqttretry = 0;
 
 uint8_t lastbutton = NOT_PRESSED;
 uint8_t holdcount = 0;
@@ -79,6 +82,10 @@ void mqtt_sethigher_state(uint8_t state)
 	}
 }
 
+uint8_t mqtt_get_state()
+{
+	return device_state;
+}
 
 void send_mqttota_off(esp_mqtt_client_handle_t client)
 {
@@ -630,15 +637,17 @@ void tick100msCallback(TimerHandle_t xTimer)
     multiwindow--;
   } else {
 	switch (multipress) {
-    case 3:
-      smartconfigflag = 4;
-      set_sled_state(SLED_FAST_FLASH);
-      break;
     case 4:
+      smartconfigflag = 1;
+      //set_sled_state(SLED_FAST_FLASH);
+      break;
+    /*
+	 case 6:
       otaflag = 1;
       //GPIO_OUTPUT_SET(LED_PIN, 0);
 	  set_sled_state(SLED_ON);
       break;
+	*/
     }
     multipress = 0;
   }
@@ -693,9 +702,15 @@ void tick100msCallback(TimerHandle_t xTimer)
 		}
 	}
     break;
-  case (STATES/10)*3: //check every second mqtt connection status and retry connecting
-    if (device_state==STATE_WIFI_CONNECTED) {
-		if (client!=NULL) esp_mqtt_client_reconnect(client);
+  case (STATES/10)*3: //check every 10 second mqtt connection status and retry connecting
+    if (mqtt_get_state()==STATE_WIFI_CONNECTED) {
+		if (client!=NULL) {
+			mqttretry++;
+			if (mqttretry>=10) {
+				esp_mqtt_client_reconnect(client);
+				mqttretry=0;
+			}
+		}
 		mqtt_sethigher_state(STATE_MQTT_CONNECTING);
 	}
 	break;	
@@ -706,16 +721,15 @@ void tick100msCallback(TimerHandle_t xTimer)
       if (restartflag <= 0) esp_restart();
     }
     break;
-  /*
+  
     case (STATES/10)*6:
     if (smartconfigflag) {
       smartconfigflag = 0;
-      WIFI_Check(WIFI_SMARTCONFIG);
-    } else {
-      WIFI_Check(WIFI_STATUS);
+      apconfig_init();
+	  set_sled_state(SLED_FAST_FLASH);
     }
     break;
-  */	
+  	
   }
 }
 
