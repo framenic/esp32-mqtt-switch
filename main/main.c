@@ -247,6 +247,16 @@ static void wifi_init(void *arg)
 static void wifi_start(void *arg)
 {
 	ESP_ERROR_CHECK(esp_wifi_start());
+	
+	char hostname[64];
+    uint8_t chipid[6];
+    char s_chipid[13];
+	
+    esp_efuse_mac_get_default(chipid);
+    sprintf(s_chipid,"%02X%02X%02X", chipid[3], chipid[4], chipid[5]);
+    sprintf(hostname,"ESP32-%s-%s",s_chipid,sysCfg.mqtt_topic);
+    ESP_LOGI(TAG, "Setting hostname %s...", hostname);
+    ESP_ERROR_CHECK(tcpip_adapter_set_hostname(TCPIP_ADAPTER_IF_STA, hostname));
 }
 
 void app_main()

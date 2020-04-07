@@ -1,4 +1,5 @@
-0.9.0
+0.9.1
+0.9.1 changed default hostname
 0.9.0 added ap mode for initial configuration
 0.8.0 added http server for setting network parameters
 0.7.0 added ota over http, factory restore, status led signaling

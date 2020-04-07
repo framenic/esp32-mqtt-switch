@@ -16,7 +16,7 @@ Button functions:
 - 1 short press
 	toggles power on/off
 - 4 short press
-	start ap mode, led on
+	start ap mode, led fast flash
 - long press (>4s)
 	factory reset, restore flash and data
 
