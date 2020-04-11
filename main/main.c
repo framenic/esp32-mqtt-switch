@@ -22,7 +22,7 @@
 #include "sled.h"
 #include "http_serv.h"
 
-static const char *TAG = "esp32-cam-MQTT";
+static const char *TAG = "main.c";
 
 static camera_config_t camera_config = {
     .pin_pwdn = CONFIG_PWDN,

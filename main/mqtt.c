@@ -577,6 +577,7 @@ void tick100msCallback(TimerHandle_t xTimer)
 			timer = 0;
 			sysCfg.power = 0;
 			//GPIO_OUTPUT_SET(REL_PIN, sysCfg.power);
+			power_set(sysCfg.power);
 			send_power(client);
 			send_timer(client);
 	  }
@@ -590,6 +591,7 @@ void tick100msCallback(TimerHandle_t xTimer)
 		if ((timer==0)&&(sysCfg.power)) {
 			sysCfg.power = 0;
 			//GPIO_OUTPUT_SET(REL_PIN, sysCfg.power);
+			power_set(sysCfg.power);
 			send_power(client);
 			send_timer(client);
 		}
